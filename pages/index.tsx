@@ -99,7 +99,7 @@ function verdict(model: ModelType, s: number) {
 }
 
 function calcSizing(
-  equity: number,  equity: number,
+  equity: number, 
   maxRiskPct: number,,
   entry: number,
   stop: number,
