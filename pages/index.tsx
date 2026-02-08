@@ -197,10 +197,31 @@ export default function TradingConsole() {
   const items = draft.model === "trend" ? TREND : REBOUND;
   const s = useMemo(() => score(draft.model, draft.checklist), [draft.model, draft.checklist]);
   const sizing = useMemo(
-    () => calcSizing(settings.equity, settings.maxRiskPct, Number(draft.entry), Number(draft.stop), settings.lotSize),
-    [settings, draft.entry, draft.stop]
-  );
-
+   () =>
+     calcSizing(
+     settings.equity,
+     settings.maxRiskPct,
+     Number(draft.entry),
+     Number(draft.stop)         
+     settings.lotSize,
+     draft.side,
+     Number(draft.feePct),
+     Number(draft.exitFeePct),
+     Number(draft.slippage)
+    ),
+  [
+     settings.equity,
+     settings.maxRiskPct,
+     settings.lotSize,
+     draft.entry,
+     draft.stop,
+     draft.side,
+     draft.feePct,
+     draft.exitFeePct,
+     draft.slippage,
+  ]
+);
+    
   function resetDraft() {
     setDraft({
       symbol: "",
@@ -436,10 +457,6 @@ export default function TradingConsole() {
             value={draft.side}
             onChange={(e) => setDraft(d => ({ ...d, side: e.target.value as any }))}
       >
-           <option value="long">做多</option>
-           <option value="short">做空</option>
-        </select>
-
         <input
           style={inp}
           type="number"
@@ -450,7 +467,7 @@ export default function TradingConsole() {
 
        <input
          style={inp}
-         type="number"
+         ype="number"
          placeholder="滑点/每股"
          value={draft.slippage}
          onChange={(e) => setDraft(d => ({ ...d, slippage: Number(e.target.value) }))}
