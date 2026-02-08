@@ -98,17 +98,53 @@ function verdict(model: ModelType, s: number) {
   }
 }
 
-function calcSizing(equity: number, maxRiskPct: number, entry: number, stop: number, lotSize: number) {
-  const e = Number(equity);
-  const rMoney = e * (Number(maxRiskPct) / 100);
-  const riskPer = Math.abs(Number(entry) - Number(stop));
-  if (!e || !rMoney || !riskPer) return { riskPer: 0, riskMoney: 0, size: 0, posMoney: 0, posPct: 0 };
-  let size = Math.floor((rMoney / riskPer) / lotSize) * lotSize;
-  size = Math.max(0, size);
-  const posMoney = size * entry;
-  const posPct = e > 0 ? (posMoney / e) * 100 : 0;
-  return { riskPer, riskMoney: rMoney, size, posMoney, posPct };
+type Side = "long" | "short";
+
+function calcSizing(
+  equity: number,
+  maxRiskPct: number,
+  entry: number,
+  stop: number,
+  lotSize: number,
+  side: Side = "long",
+  feePct: number = 0,
+  exitFeePct: number = 0,
+  slippage: number = 0
+) {
+  // 容错
+  const e = Number(entry || 0);
+  const s = Number(stop || 0);
+  const lot = Math.max(1, Number(lotSize || 1));
+  const fee = Number(feePct || 0);
+  const exitFee = Number(exitFeePct || 0);
+  const slip = Number(slippage || 0);
+
+  // 价格风险：做多 entry-stop；做空 stop-entry
+  const priceRisk = side === "long" ? (e - s) : (s - e);
+
+  // 成本风险：按“止损触发时”估算每股成本（简化模型）
+  // 手续费双边：entry 和 stop 两侧都算
+  // 平仓额外费（印花税）：按 stop 名义（止损卖出）算
+  // 滑点：进出各一次
+  const costRisk =
+    e * (fee / 100) +
+    s * (fee / 100) +
+    s * (exitFee / 100) +
+    2 * slip;
+
+  const riskPer = Math.max(0, priceRisk + costRisk);
+
+  const riskMoney = equity * (maxRiskPct / 100);
+
+  // 风险为0时避免除0
+  const rawSize = riskPer > 0 ? Math.floor(riskMoney / riskPer) : 0;
+  const size = Math.floor(rawSize / lot) * lot;
+
+  const posPct = equity > 0 ? (size * e) / equity * 100 : 0;
+
+  return { riskPer, riskMoney, size, posPct };
 }
+
 
 function calcCosts(entry: number, exit: number, size: number, feePct: number, exitFeePct: number, slippage: number) {
   const notionalEntry = entry * size;
