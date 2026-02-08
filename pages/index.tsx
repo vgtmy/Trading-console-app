@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type ModelType = "trend" | "rebound";
-type Status = "open" | "closed
+type Status = "open" | "closed";
 type Side = "long" | "short";
 
 type Trade = {
@@ -208,9 +208,13 @@ export default function TradingConsole() {
       industry: "",
       model: "trend",
       timeframe: "mid",
+      side: "long",
       entry: 0,
       stop: 0,
       target: 0,
+      feePct: settings.feePct,
+      exitFeePct: settings.exitFeePct,
+      slippage: settings.slippage,
       checklist: makeChecklist("trend"),
       tags: [],
       notes: "",
@@ -220,16 +224,16 @@ export default function TradingConsole() {
   function addTrade() {
     if (!draft.symbol.trim()) return alert("请填写股票代码/标的。");
     if (!draft.stop || draft.stop <= 0) return alert("止损价必填（无止损不允许下单）。");
-    if (!draft.entry || draft.entry <= 0) return alert("入场价必填
+    if (!draft.entry || draft.entry <= 0) return alert("入场价必填。");
 
     // ===== 多空方向止损逻辑校验 =====
     if (draft.side === "short" && Number(draft.stop) <= Number(draft.entry)) {
-    return alert("做空时止损一般应高于入场价（stop > entry）。");
-  }
+      return alert("做空时止损一般应高于入场价（stop > entry）。");
+    }
     if (draft.side === "long" && Number(draft.stop) >= Number(draft.entry)) {
-    return alert("做多时止损一般应低于入场价（stop < entry）。");
-  }
-  // ==============================
+      return alert("做多时止损一般应低于入场价（stop < entry）。");
+    }
+    // ==============================
 
     const now = Date.now();
     const t: Trade = {
@@ -424,50 +428,42 @@ export default function TradingConsole() {
               <input style={inp} type="number" placeholder="目标价（可选）" value={draft.target || ""} onChange={(e) => setDraft((d) => ({ ...d, target: Number(e.target.value) }))} />
             </div>
 
-            {/* ✅ 新增：方向/手续费/滑点 */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
-              <select
-                style={inp}
-                value={draft.side}
-                onChange={(e) => setDraft((d) => ({ ...d, side: e.target.value as any }))}
-              >
-               <option value="long">做多</option>
-               <option value="short">做空</option>
-             </select>
+            {/* ===== 成本与方向设置 ===== */}
+           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
 
-             <input
-               style={inp}
-               type="number"
-               placeholder="手续费%（双边）"
-               value={draft.feePct}
-               onChange={(e) => setDraft((d) => ({ ...d, feePct: Number(e.target.value) }))}
-            />
+          <select
+            style={inp}
+            value={draft.side}
+            onChange={(e) => setDraft(d => ({ ...d, side: e.target.value as any }))}
+      >
+           <option value="long">做多</option>
+           <option value="short">做空</option>
+        </select>
 
-           <input
-             style={inp}
-             type="number"
-             placeholder="滑点（每股/每张金额）"
-             value={draft.slippage}
-             onChange={(e) => setDraft((d) => ({ ...d, slippage: Number(e.target.value) }))}
-           />
-         </div>
+        <input
+          style={inp}
+          type="number"
+          placeholder="手续费%（双边）"
+          value={draft.feePct}
+          onChange={(e) => setDraft(d => ({ ...d, feePct: Number(e.target.value) }))}
+       />
 
-         {/* ✅ 新增：平仓额外费（如印花税） */}
-         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-           <input
-             style={inp}
-             type="number"
-             placeholder="平仓额外费%（如印花税）"
-             value={draft.exitFeePct}
-             onChange={(e) => setDraft((d) => ({ ...d, exitFeePct: Number(e.target.value) }))}
-           />
-           <div style={{ ...miniBox }}>
-             <div style={{ color: "#666", fontSize: 12 }}>提示</div>
-             <div style={{ fontSize: 12, color: "#555" }}>
-               A股常见：手续费 0.02%~0.05%，印花税 0.1%（仅卖出侧）。
-             </div>
-           </div>
-         </div>
+       <input
+         style={inp}
+         type="number"
+         placeholder="滑点/每股"
+         value={draft.slippage}
+         onChange={(e) => setDraft(d => ({ ...d, slippage: Number(e.target.value) }))}
+       />
+
+      <input
+        style={inp}
+        type="number"
+        placeholder="平仓额外费%（印花税）"
+        value={draft.exitFeePct}
+       onChange={(e) => setDraft(d => ({ ...d, exitFeePct: Number(e.target.value) }))}
+      />
+</div>
 
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginTop: 10 }}>
