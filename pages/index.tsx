@@ -1,9 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type ModelType = "trend" | "rebound";
-type Status = "open" | "closed";
+type Status = "open" | "closed
+type Side = "long" | "short";
 
 type Trade = {
+  side: Side;
+  
+  feePct: number;        // 双边手续费（%）
+  exitFeePct: number;    // 平仓额外费用（%）例如A股印花税
+  slippage: number;      // 滑点（每股/每张，金额）
+
   id: string;
   createdAt: number;
   updatedAt: number;
@@ -103,14 +110,33 @@ function calcSizing(equity: number, maxRiskPct: number, entry: number, stop: num
   return { riskPer, riskMoney: rMoney, size, posMoney, posPct };
 }
 
-function calcPnL(entry: number, exit: number, size: number) {
-  if (!entry || !exit || !size) return 0;
-  return (exit - entry) * size; // 默认做多
+function calcCosts(entry: number, exit: number, size: number, feePct: number, exitFeePct: number, slippage: number) {
+  const notionalEntry = entry * size;
+  const notionalExit = exit * size;
+
+  const fee = (notionalEntry + notionalExit) * (feePct / 100); // 双边手续费
+  const exitFee = notionalExit * (exitFeePct / 100);           // 平仓额外费（如印花税）
+  const slip = Math.abs(slippage) * size * 2;                  // 进出各一次滑点（简单模型）
+
+  return fee + exitFee + slip;
 }
-function calcR(entry: number, stop: number, exit: number) {
-  const risk = Math.abs(entry - stop);
-  if (!risk) return 0;
-  return (exit - entry) / risk; // 默认做多
+
+function calcPnL(entry: number, exit: number, size: number, side: Side, feePct: number, exitFeePct: number, slippage: number) {
+  if (!entry || !exit || !size) return 0;
+  const gross = side === "long" ? (exit - entry) * size : (entry - exit) * size;
+  const costs = calcCosts(entry, exit, size, feePct, exitFeePct, slippage);
+  return gross - costs;
+}
+
+function calcR(entry: number, stop: number, exit: number, side: Side, feePct: number, exitFeePct: number, slippage: number) {
+  const riskPer =
+    side === "long" ? (entry - stop) : (stop - entry); // 做空止损通常在 entry 上方
+
+  if (!riskPer || riskPer <= 0) return 0;
+
+  // 用“扣除成本后的每股收益”计算更贴近真实
+  const pnl = calcPnL(entry, exit, 1, side, feePct, exitFeePct, slippage); // size=1 的净利润
+  return pnl / riskPer;
 }
 
 export default function TradingConsole() {
@@ -118,6 +144,11 @@ export default function TradingConsole() {
     equity: 100000,
     maxRiskPct: 1.0,
     lotSize: 100,
+    
+    feePct: 0.03,      // 默认：双边手续费 0.03%
+    exitFeePct: 0.10,  // 默认：平仓额外费用 0.10%（A股印花税常见量级，可自己改）
+    slippage: 0.01     // 默认：滑点 0.01 元/股（自己改）
+    
   }));
 
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -125,18 +156,27 @@ export default function TradingConsole() {
 
   // draft
   const [draft, setDraft] = useState(() => ({
-    symbol: "",
-    name: "",
-    industry: "",
-    model: "trend" as ModelType,
-    timeframe: "mid" as "mid" | "swing",
-    entry: 0,
-    stop: 0,
-    target: 0,
-    checklist: makeChecklist("trend"),
-    tags: [] as string[],
-    notes: "",
-  }));
+  symbol: "",
+  name: "",
+  industry: "",
+  model: "trend" as ModelType,
+  timeframe: "mid" as "mid" | "swing",
+
+  side: "long" as Side,
+
+  entry: 0,
+  stop: 0,
+  target: 0,
+
+  feePct: settings.feePct,
+  exitFeePct: settings.exitFeePct,
+  slippage: settings.slippage,
+
+  checklist: makeChecklist("trend"),
+  tags: [] as string[],
+  notes: "",
+}));
+
 
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -180,7 +220,16 @@ export default function TradingConsole() {
   function addTrade() {
     if (!draft.symbol.trim()) return alert("请填写股票代码/标的。");
     if (!draft.stop || draft.stop <= 0) return alert("止损价必填（无止损不允许下单）。");
-    if (!draft.entry || draft.entry <= 0) return alert("入场价必填。");
+    if (!draft.entry || draft.entry <= 0) return alert("入场价必填
+
+    // ===== 多空方向止损逻辑校验 =====
+    if (draft.side === "short" && Number(draft.stop) <= Number(draft.entry)) {
+    return alert("做空时止损一般应高于入场价（stop > entry）。");
+  }
+    if (draft.side === "long" && Number(draft.stop) >= Number(draft.entry)) {
+    return alert("做多时止损一般应低于入场价（stop < entry）。");
+  }
+  // ==============================
 
     const now = Date.now();
     const t: Trade = {
@@ -194,6 +243,12 @@ export default function TradingConsole() {
 
       model: draft.model,
       timeframe: draft.timeframe,
+
+      side: draft.side,
+      feePct: Number(draft.feePct),
+      exitFeePct: Number(draft.exitFeePct),
+      slippage: Number(draft.slippage),
+
 
       entry: Number(draft.entry),
       stop: Number(draft.stop),
@@ -233,8 +288,9 @@ export default function TradingConsole() {
     setTrades((x) =>
       x.map((t) => {
         if (t.id !== id) return t;
-        const pnl = calcPnL(t.entry, exit, t.size);
-        const r = calcR(t.entry, t.stop, exit);
+        const pnl = calcPnL(t.entry, exit, t.size, t.side, t.feePct, t.exitFeePct, t.slippage);
+        const r = calcR(t.entry, t.stop, exit, t.side, t.feePct, t.exitFeePct, t.slippage);
+
         return { ...t, status: "closed", exit, pnl, r, updatedAt: Date.now() };
       })
     );
@@ -367,6 +423,52 @@ export default function TradingConsole() {
               <input style={inp} type="number" placeholder="止损价（必填）" value={draft.stop || ""} onChange={(e) => setDraft((d) => ({ ...d, stop: Number(e.target.value) }))} />
               <input style={inp} type="number" placeholder="目标价（可选）" value={draft.target || ""} onChange={(e) => setDraft((d) => ({ ...d, target: Number(e.target.value) }))} />
             </div>
+
+            {/* ✅ 新增：方向/手续费/滑点 */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
+              <select
+                style={inp}
+                value={draft.side}
+                onChange={(e) => setDraft((d) => ({ ...d, side: e.target.value as any }))}
+              >
+               <option value="long">做多</option>
+               <option value="short">做空</option>
+             </select>
+
+             <input
+               style={inp}
+               type="number"
+               placeholder="手续费%（双边）"
+               value={draft.feePct}
+               onChange={(e) => setDraft((d) => ({ ...d, feePct: Number(e.target.value) }))}
+            />
+
+           <input
+             style={inp}
+             type="number"
+             placeholder="滑点（每股/每张金额）"
+             value={draft.slippage}
+             onChange={(e) => setDraft((d) => ({ ...d, slippage: Number(e.target.value) }))}
+           />
+         </div>
+
+         {/* ✅ 新增：平仓额外费（如印花税） */}
+         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+           <input
+             style={inp}
+             type="number"
+             placeholder="平仓额外费%（如印花税）"
+             value={draft.exitFeePct}
+             onChange={(e) => setDraft((d) => ({ ...d, exitFeePct: Number(e.target.value) }))}
+           />
+           <div style={{ ...miniBox }}>
+             <div style={{ color: "#666", fontSize: 12 }}>提示</div>
+             <div style={{ fontSize: 12, color: "#555" }}>
+               A股常见：手续费 0.02%~0.05%，印花税 0.1%（仅卖出侧）。
+             </div>
+           </div>
+         </div>
+
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginTop: 10 }}>
               <Mini label="单股风险" value={fmt(sizing.riskPer, 4)} />
